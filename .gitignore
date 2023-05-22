@@ -1,0 +1,7 @@
+.DS_Store
+progressResults/
+training_checkpoints/
+logs/
+data/
+paper/
+Runs/**/*.png

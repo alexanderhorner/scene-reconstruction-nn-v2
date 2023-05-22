@@ -1,0 +1,11 @@
+BUFFER_SIZE: 4000
+BATCH_SIZE: 8
+DATASET_NAME: 30k
+RUN_NAME: 30k-singleimage-test1
+MODEL_NAME: cGAN3
+GENERAL_PATH: Runs/cGAN3/30k/30k-singleimage-test1/
+DATASET_PATH: data/30k/
+CHECKPOINT_DIR: Runs/cGAN3/30k/30k-singleimage-test1/training_checkpoints/
+LOG_DIR: Runs/cGAN3/30k/30k-singleimage-test1/20230522-160752/logs/
+PRGRESS_RESULTS_DIR: Runs/cGAN3/30k/30k-singleimage-test1/20230522-160752/results/
+LEARNING_RATE: 0.0002

@@ -1,0 +1,11 @@
+BUFFER_SIZE: 4000
+BATCH_SIZE: 8
+DATASET_NAME: simplecars-fixedpos-whitebg-squarelines
+RUN_NAME: BS8-special-chatGPT-4cameraviews-test3
+MODEL_NAME: cGAN3
+GENERAL_PATH: runs/cGAN3/simplecars-fixedpos-whitebg-squarelines/BS8-special-chatGPT-4cameraviews-test3/
+DATASET_PATH: data/simplecars-fixedpos-whitebg-squarelines/
+CHECKPOINT_DIR: runs/cGAN3/simplecars-fixedpos-whitebg-squarelines/BS8-special-chatGPT-4cameraviews-test3/training_checkpoints/
+LOG_DIR: runs/cGAN3/simplecars-fixedpos-whitebg-squarelines/BS8-special-chatGPT-4cameraviews-test3/20230522-155410/logs/
+PRGRESS_RESULTS_DIR: runs/cGAN3/simplecars-fixedpos-whitebg-squarelines/BS8-special-chatGPT-4cameraviews-test3/20230522-155410/results/
+LEARNING_RATE: 0.0002
