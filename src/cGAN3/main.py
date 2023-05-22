@@ -8,10 +8,12 @@ from IPython import display
 from argparse import ArgumentParser
 from tqdm import tqdm
 import os
+from tensorflow.keras.callbacks import TensorBoard
+import json
 
 parser = ArgumentParser()
 parser.add_argument('--dataset', default='30k')
-parser.add_argument('--runname', default='30k-singleimage-test1')
+parser.add_argument('--runname', default='30k-singleimage-test3-longrun')
 parser.add_argument('--batchsize', default='8')
 parser.add_argument('--learningrate', default='2e-4')
 args = parser.parse_args()
@@ -28,36 +30,34 @@ GENERAL_PATH = 'Runs/' + MODEL_NAME + '/' + DATASET_NAME + '/' + RUN_NAME + '/'
 DATASET_PATH = 'data/' + DATASET_NAME + '/'
 CHECKPOINT_DIR = GENERAL_PATH + 'training_checkpoints/'
 LOG_DIR = GENERAL_PATH + RUN_TIMEDATA + '/' + 'logs/'
-PRGRESS_RESULTS_DIR = GENERAL_PATH + RUN_TIMEDATA + '/' + 'results/'
 
-def write_info_to_file(filename, data):
-  directory = os.path.dirname(filename)
-  if not os.path.exists(directory):
-    os.makedirs(directory)
-  with open(filename, 'w') as f:
-    for key, value in data.items():
-      f.write(f'{key}: {value}\n')
+information = '''
+BUFFER_SIZE: {}
 
-data = {
-  'BUFFER_SIZE': BUFFER_SIZE,
-  'BATCH_SIZE': BATCH_SIZE,
-  'DATASET_NAME': DATASET_NAME,
-  'RUN_NAME': RUN_NAME,
-  'MODEL_NAME': MODEL_NAME,
-  'GENERAL_PATH': GENERAL_PATH,
-  'DATASET_PATH': DATASET_PATH,
-  'CHECKPOINT_DIR': CHECKPOINT_DIR,
-  'LOG_DIR': LOG_DIR,
-  'PRGRESS_RESULTS_DIR': PRGRESS_RESULTS_DIR,
-  'LEARNING_RATE': str(float(args.learningrate))
-}
-write_info_to_file(GENERAL_PATH + RUN_TIMEDATA + '/info.txt', data)
+BATCH_SIZE: {}
+
+DATASET_NAME: {}
+
+RUN_NAME: {}
+
+MODEL_NAME: {}
+
+GENERAL_PATH: {}
+
+DATASET_PATH: {}
+
+CHECKPOINT_DIR: {}
+
+LOG_DIR: {}
+
+LEARNING_RATE: {}
+
+'''.format(BUFFER_SIZE, BATCH_SIZE, DATASET_NAME, RUN_NAME, MODEL_NAME, GENERAL_PATH, DATASET_PATH, CHECKPOINT_DIR, LOG_DIR, str(float(args.learningrate)))
+
+print(information)
 
 # Load dataset
 print('Loading dataset...')
-for key, value in data.items():
-  print((f'{key}: {value}'))
-
 # Image load function  
 def loadImage(image_file_path):
   image = tf.io.read_file(image_file_path)
@@ -83,31 +83,18 @@ def getImageArray(pathToImageSetFolder):
 # Get list of files
 train_dataset = tf.data.Dataset.list_files(DATASET_PATH + '/train/*/')
 test_dataset = tf.data.Dataset.list_files(DATASET_PATH + '/test/*/')
+val_dataset = tf.data.Dataset.list_files(DATASET_PATH + '/val/*/')
   
 # call image load function for every file in list
 train_dataset = train_dataset.map(getImageArray, num_parallel_calls=tf.data.AUTOTUNE)
 test_dataset = test_dataset.map(getImageArray, num_parallel_calls=tf.data.AUTOTUNE)
-
-# Display a few samples from the training set
-f, axs = plt.subplots(3, 6, figsize=(12, 6))
-for row in axs:
-  for ax in row:
-    ax.axis('off')
-for i, (inputImage, targetImage) in enumerate(train_dataset.take(9)):
-  placeInRow = i%3
-  row = math.floor(i / 3)
-  axs[row, placeInRow*2].imshow(reverseNormalizeImageAndConvertToUINT8(inputImage))
-  axs[row, placeInRow*2+1].imshow(reverseNormalizeImageAndConvertToUINT8(targetImage))
-  axs[row, placeInRow*2].title.set_text('Input  ---->')
-  axs[row, placeInRow*2+1].title.set_text('Target')
-tf.io.gfile.makedirs(PRGRESS_RESULTS_DIR)
-plt.savefig(PRGRESS_RESULTS_DIR + '/trainingset-samples.png')
-plt.close()
+val_dataset = val_dataset.map(getImageArray, num_parallel_calls=tf.data.AUTOTUNE)
 
 # organize dataset
 train_dataset = train_dataset.shuffle(BUFFER_SIZE)
 train_dataset = train_dataset.batch(BATCH_SIZE)
 test_dataset = test_dataset.batch(BATCH_SIZE)
+val_dataset = val_dataset.batch(BATCH_SIZE)
 
 print('Loaded dataset.')
 
@@ -257,9 +244,11 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
                                  generator=generator,
                                  discriminator=discriminator)
 
+tensorboard_callback = TensorBoard(log_dir=LOG_DIR, histogram_freq=1)
+
 # TRAINING
 @tf.function
-def train_step(input_image, target):
+def train_step(input_image, target, step, writer):
   with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
     gen_output = generator(input_image, training=True)
 
@@ -279,45 +268,53 @@ def train_step(input_image, target):
   discriminator_optimizer.apply_gradients(zip(discriminator_gradients,
                                               discriminator.trainable_variables))
 
+  with writer.as_default():
+    tf.summary.scalar('gen_total_loss', gen_total_loss, step=step)
+    tf.summary.scalar('gen_gan_loss', gen_gan_loss, step=step)
+    tf.summary.scalar('gen_l1_loss', gen_l1_loss, step=step)
+    tf.summary.scalar('disc_loss', disc_loss, step=step)
+    concatenated_images = tf.concat([input_image, gen_output, target], axis=2)
+    tf.summary.image("trainingsteps", concatenated_images, step=step, max_outputs=10)
+
 def fit(train_ds, test_ds):
   step = 0
+  writer = tf.summary.create_file_writer(LOG_DIR)
+
+  for image_pair in train_ds.take(1):
+    # Only take the first 10 pairs from the batch
+    image_pair = image_pair[:10]
+    image_pair = tf.concat(image_pair, axis=2)
+
+  with writer.as_default():
+    tf.summary.image("training_dataset", image_pair, step=step, max_outputs=10)
+    tf.summary.text('Information', information, step=step)
   
   for epoch in range(100):
     start = time.time()
-    # Train
-    
     print('Epoch', str(epoch + 1), 'going on....')
 
     for input_image, target in tqdm(train_ds):
       step += 1
-      train_step(input_image, target)
+      step_tf = tf.constant(step, dtype=tf.int64)
+      train_step(input_image, target, step_tf, writer)
+    
+    for validation_batch in val_dataset.take(1):
+      # The validation_batch is a tuple, where the first element is the input images, and the second element is the target images
+      input_images, target_images = validation_batch
 
-      if (step) % 125 == 0:
-        # Display a few samples from the validation set
-        f, axs = plt.subplots(3, 6, figsize=(12, 6))
-        for row in axs:
-          for ax in row:
-            ax.axis('off')
-        for i in range(6):
-          picNumber = 30001 + i
+      # Generate output using the generator model on the input images
+      generated_images = generator(input_images, training=False)
 
-          # make a prediction
-          inputimg = loadImage(DATASET_PATH + '/val/' + str(picNumber) + '/camera1.png')
-          inputimg4d = tf.expand_dims(inputimg, 0)
-          predictedImg = generator(inputimg4d, training=False)
-          predictedImg = tf.squeeze(predictedImg)
-          targetImg = loadImage(DATASET_PATH + '/val/' + str(picNumber) + '/cameraTarget.png')
+      # Only take the first 10 pairs from the batch
+      input_images = input_images[:10]
+      target_images = target_images[:10]
+      generated_images = generated_images[:10]
 
-          placeInRow = i%2
-          row = math.floor(i / 2)
-          axs[row, placeInRow*3].imshow(reverseNormalizeImageAndConvertToUINT8(inputimg))
-          axs[row, placeInRow*3+1].imshow(reverseNormalizeImageAndConvertToUINT8(targetImg))
-          axs[row, placeInRow*3+2].imshow(reverseNormalizeImageAndConvertToUINT8(predictedImg))
-          axs[row, placeInRow*3].title.set_text('Input  ---->')
-          axs[row, placeInRow*3+1].title.set_text('Target  ---->')
-          axs[row, placeInRow*3+2].title.set_text('Predicted')
-        plt.savefig(PRGRESS_RESULTS_DIR + 'step' + str(step) + '(epoche' + str(epoch + 1) + ')' + '.png')
-        plt.close()
+      # Concatenate the original and generated images
+      comparison_images = tf.concat([input_images, generated_images, target_images], axis=2)
+
+      with writer.as_default():
+        tf.summary.image("validation_dataset", comparison_images, step=epoch, max_outputs=10)
 
     print('Completed.')
 
